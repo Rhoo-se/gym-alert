@@ -52,10 +52,21 @@ def fetch_courses():
     req.add_header("User-Agent", "Mozilla/5.0")
     with urllib.request.urlopen(req, timeout=15) as resp:
         raw = resp.read().decode("utf-8")
-    return json.loads(raw).get("data", [])
+    payload = json.loads(raw)
+    items = payload.get("data", [])
+    if isinstance(items, str):
+        try:
+            items = json.loads(items)
+        except json.JSONDecodeError:
+            return []
+    if not isinstance(items, list):
+        return []
+    return [row for row in items if isinstance(row, dict)]
 
 
 def is_target_row(row):
+    if not isinstance(row, dict):
+        return False
     if TARGET_PGM_NM:
         return row.get("pgm_nm") == TARGET_PGM_NM
     return (
@@ -92,7 +103,7 @@ def send_telegram(text):
 def main():
     print("Starting swim seat watcher...", flush=True)
     print(f"Target program: {TARGET_PGM_NM or 'auto-match'}", flush=True)
-    was_full = True
+    last_available = None
 
     while True:
         try:
@@ -102,8 +113,10 @@ def main():
                 print("Target class not found in response.")
             else:
                 available, ratio = seat_available(target)
-                print(f"Status: {ratio}")
-                if was_full and available:
+                able_type = target.get("able_type")
+                regi_able = target.get("regi_able")
+                print(f"Status: {ratio} | able_type={able_type} regi_able={regi_able}")
+                if last_available is False and available:
                     msg = (
                         "Seat opened!\n"
                         f"{target.get('up_nm')} / {target.get('bas_nm')}\n"
@@ -111,7 +124,7 @@ def main():
                         f"{ratio}"
                     )
                     send_telegram(msg)
-                was_full = not available
+                last_available = available
         except Exception as exc:
             print(f"Error: {exc}", file=sys.stderr)
 
